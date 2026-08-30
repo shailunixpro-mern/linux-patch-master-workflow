@@ -17,6 +17,7 @@ jobs:
       runner_name: ${{ steps.params.outputs.runner_name }}
       main_branch: ${{ steps.params.outputs.main_branch }}
       develop_branch: ${{ steps.params.outputs.develop_branch }}
+      create_inc_runner_name: ${{ steps.params.outputs.create_inc_runner_name }}
 
     steps:
 
@@ -40,12 +41,14 @@ jobs:
           MAIN_REQ=$(yq '.main_branch_must_exist' $PARAM_FILE)
           DEV_REQ=$(yq '.develop_branch_must_exist' $PARAM_FILE)
           RUNNER=$(yq '.runner_name' $PARAM_FILE)
+          CREATE_INC_RUNNER=$(yq '.github_action_to_create_inc_reusable_workflow_parameter_runner_name' $PARAM_FILE)
           EPOCH=$(yq '.epoch_time_to_trigger_master_workflow' $PARAM_FILE)
           ITER=$(yq '.allowed_iteration' $PARAM_FILE)
 
           echo "runner_name=$RUNNER" >> $GITHUB_OUTPUT
           echo "main_branch=$MAIN_BRANCH" >> $GITHUB_OUTPUT
           echo "develop_branch=$DEVELOP_BRANCH" >> $GITHUB_OUTPUT
+          echo "create_inc_runner_name=$CREATE_INC_RUNNER" >> $GITHUB_OUTPUT
 
       - name: Validate Main Branch
         run: |
@@ -130,15 +133,20 @@ jobs:
     needs:
       - runner-connectivity-test
 
+    outputs:
+      connectivity_result: ${{ steps.display_result.outputs.connectivity_result }}
+
     runs-on: ubuntu-latest
 
     steps:
 
       - name: Display Workflow Result
+        id: display_result
 
         run: |
 
           RESULT="${{ needs.runner-connectivity-test.outputs.connectivity_result }}"
+          echo "connectivity_result=$RESULT" >> "$GITHUB_OUTPUT"
 
           echo "=================================================="
           echo "Variable Name : connectivity_result"
@@ -151,6 +159,87 @@ jobs:
              echo "Runner connectivity test FAILED"
              exit 1
           fi
+
+  validate-and-prepare-servicenow-inputs:
+
+    needs:
+      - validate-parameters
+      - display-results
+
+    if: ${{ needs.display-results.outputs.connectivity_result == 'Success' }}
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      servicenow_instance: ${{ steps.prepare.outputs.servicenow_instance }}
+      servicenow_user: ${{ steps.prepare.outputs.servicenow_user }}
+      servicenow_sys_id: ${{ steps.prepare.outputs.servicenow_sys_id }}
+
+    steps:
+      - name: Read and validate ServiceNow variables from secrets
+        id: prepare
+        env:
+          SERVICENOW_INSTANCE: ${{ secrets.SERVICENOW_INSTANCE }}
+          SERVICENOW_USER: ${{ secrets.SERVICENOW_USER }}
+          SERVICENOW_SYS_ID: ${{ secrets.SERVICENOW_SYS_ID }}
+          SERVICENOW_PASSWORD: ${{ secrets.SERVICENOW_PASSWORD }}
+        run: |
+          [ -n "$SERVICENOW_INSTANCE" ] || { echo "SERVICENOW_INSTANCE is null/empty"; exit 1; }
+          [ -n "$SERVICENOW_USER" ] || { echo "SERVICENOW_USER is null/empty"; exit 1; }
+          [ -n "$SERVICENOW_SYS_ID" ] || { echo "SERVICENOW_SYS_ID is null/empty"; exit 1; }
+          [ -n "$SERVICENOW_PASSWORD" ] || { echo "SERVICENOW_PASSWORD is null/empty"; exit 1; }
+
+          echo "servicenow_instance=$SERVICENOW_INSTANCE" >> "$GITHUB_OUTPUT"
+          echo "servicenow_user=$SERVICENOW_USER" >> "$GITHUB_OUTPUT"
+          echo "servicenow_sys_id=$SERVICENOW_SYS_ID" >> "$GITHUB_OUTPUT"
+
+  create-incident-from-reusable-workflow:
+
+    needs:
+      - validate-parameters
+      - display-results
+      - validate-and-prepare-servicenow-inputs
+
+    if: ${{ needs.display-results.outputs.connectivity_result == 'Success' }}
+
+    uses: shailunixpro-mern/Github-Action-to-Create-INC-Reusable-Workflow/.github/workflows/github-create-servicenow-incident-reusable.yml@main
+
+    with:
+      RUNNER_NAME: ${{ needs.validate-parameters.outputs.create_inc_runner_name }}
+      SERVICENOW_INSTANCE: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_instance }}
+      SERVICENOW_USER: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_user }}
+      SERVICENOW_SYS_ID: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_sys_id }}
+
+    secrets:
+      SERVICENOW_PASSWORD: ${{ secrets.SERVICENOW_PASSWORD }}
+
+  display-current-workflow-execution-values:
+
+    needs:
+      - create-incident-from-reusable-workflow
+
+    if: ${{ always() && needs.create-incident-from-reusable-workflow.result == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      INCIDENT_CURRENT_WORKFLOW_EXECUTION: ${{ steps.capture.outputs.INCIDENT_CURRENT_WORKFLOW_EXECUTION }}
+      RESULT_CURRENT_WORKFLOW_EXECUTION: ${{ steps.capture.outputs.RESULT_CURRENT_WORKFLOW_EXECUTION }}
+
+    steps:
+      - name: Capture and display current workflow execution values
+        id: capture
+        run: |
+          INCIDENT_CURRENT_WORKFLOW_EXECUTION="${{ needs.create-incident-from-reusable-workflow.outputs.INCIDENT_NUMBER }}"
+          RESULT_CURRENT_WORKFLOW_EXECUTION="${{ needs.create-incident-from-reusable-workflow.outputs.RETURN_VALUE }}"
+
+          echo "INCIDENT_CURRENT_WORKFLOW_EXECUTION=$INCIDENT_CURRENT_WORKFLOW_EXECUTION" >> "$GITHUB_OUTPUT"
+          echo "RESULT_CURRENT_WORKFLOW_EXECUTION=$RESULT_CURRENT_WORKFLOW_EXECUTION" >> "$GITHUB_OUTPUT"
+
+          echo "=================================================="
+          echo "INCIDENT_CURRENT_WORKFLOW_EXECUTION: $INCIDENT_CURRENT_WORKFLOW_EXECUTION"
+          echo "RESULT_CURRENT_WORKFLOW_EXECUTION: $RESULT_CURRENT_WORKFLOW_EXECUTION"
+          echo "=================================================="
 
   merge-develop-into-main:
 
