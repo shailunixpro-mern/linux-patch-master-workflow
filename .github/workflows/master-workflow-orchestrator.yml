@@ -223,6 +223,16 @@ jobs:
           INCIDENT_CURRENT_WORKFLOW_EXECUTION="${{ needs.create-incident-from-reusable-workflow.outputs.INCIDENT_NUMBER }}"
           RESULT_CURRENT_WORKFLOW_EXECUTION="${{ needs.create-incident-from-reusable-workflow.outputs.RETURN_VALUE }}"
 
+          [ -n "$INCIDENT_CURRENT_WORKFLOW_EXECUTION" ] || {
+            echo "INCIDENT_CURRENT_WORKFLOW_EXECUTION is null/empty"
+            exit 1
+          }
+
+          if [ "$(printf '%s' "$RESULT_CURRENT_WORKFLOW_EXECUTION" | tr '[:lower:]' '[:upper:]')" != "SUCCESS" ]; then
+            echo "RESULT_CURRENT_WORKFLOW_EXECUTION is not SUCCESS: $RESULT_CURRENT_WORKFLOW_EXECUTION"
+            exit 1
+          fi
+
           echo "INCIDENT_CURRENT_WORKFLOW_EXECUTION=$INCIDENT_CURRENT_WORKFLOW_EXECUTION" >> "$GITHUB_OUTPUT"
           echo "RESULT_CURRENT_WORKFLOW_EXECUTION=$RESULT_CURRENT_WORKFLOW_EXECUTION" >> "$GITHUB_OUTPUT"
 
