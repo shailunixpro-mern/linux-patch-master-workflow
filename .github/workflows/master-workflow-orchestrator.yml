@@ -246,6 +246,7 @@ jobs:
     needs:
       - validate-parameters
       - display-results
+      - display-current-workflow-execution-values
 
     if: |
       success() &&
