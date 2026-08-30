@@ -170,14 +170,8 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    outputs:
-      servicenow_instance: ${{ steps.prepare.outputs.servicenow_instance }}
-      servicenow_user: ${{ steps.prepare.outputs.servicenow_user }}
-      servicenow_sys_id: ${{ steps.prepare.outputs.servicenow_sys_id }}
-
     steps:
       - name: Read and validate ServiceNow variables from secrets
-        id: prepare
         env:
           SERVICENOW_INSTANCE: ${{ secrets.SERVICENOW_INSTANCE }}
           SERVICENOW_USER: ${{ secrets.SERVICENOW_USER }}
@@ -188,10 +182,6 @@ jobs:
           [ -n "$SERVICENOW_USER" ] || { echo "SERVICENOW_USER is null/empty"; exit 1; }
           [ -n "$SERVICENOW_SYS_ID" ] || { echo "SERVICENOW_SYS_ID is null/empty"; exit 1; }
           [ -n "$SERVICENOW_PASSWORD" ] || { echo "SERVICENOW_PASSWORD is null/empty"; exit 1; }
-
-          echo "servicenow_instance=$SERVICENOW_INSTANCE" >> "$GITHUB_OUTPUT"
-          echo "servicenow_user=$SERVICENOW_USER" >> "$GITHUB_OUTPUT"
-          echo "servicenow_sys_id=$SERVICENOW_SYS_ID" >> "$GITHUB_OUTPUT"
 
   create-incident-from-reusable-workflow:
 
@@ -206,11 +196,11 @@ jobs:
 
     with:
       RUNNER_NAME: ${{ needs.validate-parameters.outputs.create_inc_runner_name }}
-      SERVICENOW_INSTANCE: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_instance }}
-      SERVICENOW_USER: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_user }}
-      SERVICENOW_SYS_ID: ${{ needs.validate-and-prepare-servicenow-inputs.outputs.servicenow_sys_id }}
 
     secrets:
+      SERVICENOW_INSTANCE: ${{ secrets.SERVICENOW_INSTANCE }}
+      SERVICENOW_USER: ${{ secrets.SERVICENOW_USER }}
+      SERVICENOW_SYS_ID: ${{ secrets.SERVICENOW_SYS_ID }}
       SERVICENOW_PASSWORD: ${{ secrets.SERVICENOW_PASSWORD }}
 
   display-current-workflow-execution-values:
