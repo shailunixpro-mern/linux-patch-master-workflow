@@ -241,16 +241,138 @@ jobs:
           echo "RESULT_CURRENT_WORKFLOW_EXECUTION: $RESULT_CURRENT_WORKFLOW_EXECUTION"
           echo "=================================================="
 
-  merge-develop-into-main:
+  resolve-awx-patching-params:
 
     needs:
       - validate-parameters
       - display-results
       - display-current-workflow-execution-values
 
+    if: ${{ success() }}
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      patching_runner_name: ${{ steps.read_awx_params.outputs.patching_runner_name }}
+      inventory_name: ${{ steps.read_awx_params.outputs.inventory_name }}
+      job_template_name: ${{ steps.read_awx_params.outputs.job_template_name }}
+      awx_verify_ssl: ${{ steps.read_awx_params.outputs.awx_verify_ssl }}
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+          https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Read AWX patching params by branch
+        id: read_awx_params
+        run: |
+          set -euo pipefail
+
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+
+          if [ "$BRANCH_NAME" = "develop" ]; then
+            PARAM_FILE="parameters/dev/runner-params.yaml"
+          elif [ "$BRANCH_NAME" = "main" ]; then
+            PARAM_FILE="parameters/prod/runner-params.yaml"
+          else
+            echo "This workflow supports AWX patching only from develop or main branch. Current branch: $BRANCH_NAME"
+            exit 1
+          fi
+
+          [ -s "$PARAM_FILE" ] || { echo "Parameter file is empty: $PARAM_FILE"; exit 1; }
+
+          PATCHING_RUNNER_NAME=$(yq '.runner_name' "$PARAM_FILE")
+          INVENTORY_NAME=$(yq '.inventory_name' "$PARAM_FILE")
+          JOB_TEMPLATE_NAME=$(yq '.job_template_name' "$PARAM_FILE")
+          AWX_VERIFY_SSL=$(yq '.awx_verify_ssl // "false"' "$PARAM_FILE")
+
+          [ -n "$PATCHING_RUNNER_NAME" ] && [ "$PATCHING_RUNNER_NAME" != "null" ] || { echo "runner_name missing in $PARAM_FILE"; exit 1; }
+          [ -n "$INVENTORY_NAME" ] && [ "$INVENTORY_NAME" != "null" ] || { echo "inventory_name missing in $PARAM_FILE"; exit 1; }
+          [ -n "$JOB_TEMPLATE_NAME" ] && [ "$JOB_TEMPLATE_NAME" != "null" ] || { echo "job_template_name missing in $PARAM_FILE"; exit 1; }
+
+          echo "patching_runner_name=$PATCHING_RUNNER_NAME" >> "$GITHUB_OUTPUT"
+          echo "inventory_name=$INVENTORY_NAME" >> "$GITHUB_OUTPUT"
+          echo "job_template_name=$JOB_TEMPLATE_NAME" >> "$GITHUB_OUTPUT"
+          echo "awx_verify_ssl=$AWX_VERIFY_SSL" >> "$GITHUB_OUTPUT"
+
+  run-awx-linux-patching:
+
+    needs:
+      - resolve-awx-patching-params
+
+    if: ${{ needs.resolve-awx-patching-params.result == 'success' }}
+
+    uses: shailunixpro-mern/Github-Action-to-AWX-Linux-Patching-JobTemplate-Reusable-Workflow-1/.github/workflows/awx-linux-patching-reusable.yml@main
+
+    with:
+      inventory_name: ${{ needs.resolve-awx-patching-params.outputs.inventory_name }}
+      runner_name: ${{ needs.resolve-awx-patching-params.outputs.patching_runner_name }}
+      job_template_name: ${{ needs.resolve-awx-patching-params.outputs.job_template_name }}
+      awx_verify_ssl: ${{ needs.resolve-awx-patching-params.outputs.awx_verify_ssl }}
+
+    secrets:
+      awx_url: ${{ secrets.AWX_URL }}
+      awx_username: ${{ secrets.AWX_USERNAME }}
+      awx_password: ${{ secrets.AWX_PASSWORD }}
+
+  save-awx-patching-return-values:
+
+    needs:
+      - run-awx-linux-patching
+
+    if: ${{ always() && needs.run-awx-linux-patching.result == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      saved_awx_job_id: ${{ steps.save.outputs.saved_awx_job_id }}
+      saved_awx_job_status: ${{ steps.save.outputs.saved_awx_job_status }}
+      saved_awx_job_api_url: ${{ steps.save.outputs.saved_awx_job_api_url }}
+      saved_awx_job_stdout_excerpt: ${{ steps.save.outputs.saved_awx_job_stdout_excerpt }}
+      saved_awx_job_stdout_truncated: ${{ steps.save.outputs.saved_awx_job_stdout_truncated }}
+
+    steps:
+
+      - name: Save AWX reusable workflow return values
+        id: save
+        env:
+          AWX_JOB_ID: ${{ needs.run-awx-linux-patching.outputs.awx_job_id }}
+          AWX_JOB_STATUS: ${{ needs.run-awx-linux-patching.outputs.awx_job_status }}
+          AWX_JOB_API_URL: ${{ needs.run-awx-linux-patching.outputs.awx_job_api_url }}
+          AWX_JOB_STDOUT_EXCERPT: ${{ needs.run-awx-linux-patching.outputs.awx_job_stdout_excerpt }}
+          AWX_JOB_STDOUT_TRUNCATED: ${{ needs.run-awx-linux-patching.outputs.awx_job_stdout_truncated }}
+        run: |
+          set -euo pipefail
+
+          echo "saved_awx_job_id=$AWX_JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "saved_awx_job_status=$AWX_JOB_STATUS" >> "$GITHUB_OUTPUT"
+          echo "saved_awx_job_api_url=$AWX_JOB_API_URL" >> "$GITHUB_OUTPUT"
+          echo "saved_awx_job_stdout_truncated=$AWX_JOB_STDOUT_TRUNCATED" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "saved_awx_job_stdout_excerpt<<EOF"
+            echo "$AWX_JOB_STDOUT_EXCERPT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  merge-develop-into-main:
+
+    needs:
+      - validate-parameters
+      - display-results
+      - display-current-workflow-execution-values
+      - run-awx-linux-patching
+      - save-awx-patching-return-values
+
     if: |
       success() &&
-      github.ref == format('refs/heads/{0}', needs.validate-parameters.outputs.develop_branch)
+      github.ref_name == 'develop'
 
     runs-on: ubuntu-latest
     timeout-minutes: 1440

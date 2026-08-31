@@ -1,0 +1,4 @@
+runner_name: "BamAgentSrvLinux"
+inventory_name: "Ubuntu-Inventory"
+job_template_name: "Ubuntu Linux Patching Template"
+awx_verify_ssl: "false"
