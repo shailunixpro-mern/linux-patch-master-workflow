@@ -361,6 +361,32 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+  update-servicenow-incident-from-awx-results:
+
+    needs:
+      - validate-parameters
+      - display-current-workflow-execution-values
+      - resolve-awx-patching-params
+      - save-awx-patching-return-values
+
+    if: ${{ needs.validate-parameters.result == 'success' && needs.display-current-workflow-execution-values.result == 'success' && needs.resolve-awx-patching-params.result == 'success' && needs.save-awx-patching-return-values.result == 'success' }}
+
+    uses: shailunixpro-mern/Github-Action-to-Update-Servicenow-Incident-Reusable-Workflow/.github/workflows/github-update-servicenow-incident-reusable.yml@main
+
+    with:
+      runner_name: ${{ needs.resolve-awx-patching-params.outputs.patching_runner_name }}
+      incident_current_workflow_execution: ${{ needs.display-current-workflow-execution-values.outputs.INCIDENT_CURRENT_WORKFLOW_EXECUTION }}
+      awx_job_id: ${{ needs.save-awx-patching-return-values.outputs.saved_awx_job_id }}
+      awx_job_status: ${{ needs.save-awx-patching-return-values.outputs.saved_awx_job_status }}
+      awx_job_stdout_excerpt: ${{ needs.save-awx-patching-return-values.outputs.saved_awx_job_stdout_excerpt }}
+      job_template_name: ${{ needs.resolve-awx-patching-params.outputs.job_template_name }}
+      branch_name: ${{ github.ref_name }}
+
+    secrets:
+      servicenow_instance: ${{ secrets.SERVICENOW_INSTANCE }}
+      servicenow_user: ${{ secrets.SERVICENOW_USER }}
+      servicenow_password: ${{ secrets.SERVICENOW_PASSWORD }}
+
   merge-develop-into-main:
 
     needs:
