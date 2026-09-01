@@ -308,7 +308,7 @@ jobs:
 
     if: ${{ needs.resolve-awx-patching-params.result == 'success' }}
 
-    uses: shailunixpro-mern/Github-Action-to-AWX-Linux-Patching-JobTemplate-Reusable-Workflow-1/.github/workflows/awx-linux-patching-reusable.yml@main
+    uses: shailunixpro-mern/Github-Action-to-AWX-Linux-Patching-JobTemplate-Reusable-Workflow/.github/workflows/awx-linux-patching-reusable.yml@main
 
     with:
       inventory_name: ${{ needs.resolve-awx-patching-params.outputs.inventory_name }}
